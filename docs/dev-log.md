@@ -30,3 +30,17 @@
 - Built image successfully inside Minikube's docker daemon via
   `eval $(minikube docker-env)`
 - Verified container runs with --cpus=1 and /predict + GUI work correctly
+
+## Phase 3 — K8s Deployment & Service
+- Created inference-deployment.yaml (CPU request=limit=1, imagePullPolicy: Never)
+- Created inference-service.yaml (ClusterIP, port 8000)
+- Hit issue: after host reboot, Minikube cluster was unreachable
+  (no route to host on 192.168.49.2:8443) — Minikube didn't auto-resume.
+  Fixed with `minikube start`.
+- Note: if Minikube recreates the cluster, locally-built images inside its
+  docker daemon are lost and must be rebuilt via `eval $(minikube docker-env)`
+  before kubectl apply will work (otherwise ErrImageNeverPull)
+- Verified inference-service reachable from inside cluster via kube-dns
+  (curl http://inference-service:8000/health from a debug pod) — NOT
+  resolvable from host shell, which is expected (ClusterIP DNS is
+  cluster-internal only)
