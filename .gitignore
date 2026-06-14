@@ -1,0 +1,22 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# C++
+build/
+*.o
+*.out
+CMakeCache.txt
+CMakeFiles/
+
+# Model weights (large, downloaded at build/run time)
+*.pth
+
+# Results/data
+results/*.csv
+results/*.png
+
+# OS
+.DS_Store
