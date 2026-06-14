@@ -20,3 +20,13 @@
 - Built image successfully inside Minikube's docker daemon via
   `eval $(minikube docker-env)`
 - Verified container runs with --cpus=1 and /predict + GUI work correctly
+
+## Phase 2 — Dockerization (cont.)
+- Fixed docker permission issue: user added to docker group required new
+  login session (rebooted), `newgrp docker` is a temporary per-shell fix
+- Updated requirements.txt with CPU-only torch/torchvision wheels
+  (--extra-index-url https://download.pytorch.org/whl/cpu) — venv's pip freeze
+  pulled CUDA wheels by default
+- Built image successfully inside Minikube's docker daemon via
+  `eval $(minikube docker-env)`
+- Verified container runs with --cpus=1 and /predict + GUI work correctly
