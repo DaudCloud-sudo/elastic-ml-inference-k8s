@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ResNet18 Inference</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #1a1d24;
+    --accent: #4f9dff;
+    --accent-glow: rgba(79, 157, 255, 0.25);
+    --text: #e6e8eb;
+    --text-dim: #8b919a;
+    --success: #4fd1a5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 32px;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  h1 {
+    font-size: 1.4rem;
+    margin-bottom: 4px;
+    letter-spacing: -0.02em;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-bottom: 24px;
+  }
+  .dropzone {
+    border: 2px dashed rgba(255,255,255,0.15);
+    border-radius: 12px;
+    padding: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+  }
+  .dropzone input { display: none; }
+  .dropzone p { color: var(--text-dim); font-size: 0.9rem; }
+  #preview {
+    max-width: 100%;
+    max-height: 220px;
+    border-radius: 8px;
+    margin-top: 16px;
+    display: none;
+  }
+  button {
+    width: 100%;
+    margin-top: 20px;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s ease, opacity 0.2s ease;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:not(:disabled):hover { transform: translateY(-1px); }
+
+  .result {
+    margin-top: 24px;
+    padding: 18px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    display: none;
+  }
+  .result.show { display: block; }
+  .result-label {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--success);
+    text-transform: capitalize;
+  }
+  .result-meta {
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+  }
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    display: inline-block;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>ResNet18 Image Classifier</h1>
+    <p class="subtitle">CPU-only inference · Elastic ML Serving Project</p>
+
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" accept="image/*">
+      <p id="dzText">Click or drag an image here</p>
+      <img id="preview" alt="preview">
+    </div>
+
+    <button id="predictBtn" disabled>Run Inference</button>
+
+    <div class="result" id="result">
+      <div class="result-label" id="resultLabel">—</div>
+      <div class="result-meta">
+        <span id="resultLatency"></span>
+        <span id="resultStatus"></span>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const preview = document.getElementById('preview');
+  const dzText = document.getElementById('dzText');
+  const predictBtn = document.getElementById('predictBtn');
+  const result = document.getElementById('result');
+  const resultLabel = document.getElementById('resultLabel');
+  const resultLatency = document.getElementById('resultLatency');
+  const resultStatus = document.getElementById('resultStatus');
+
+  let selectedFile = null;
+
+  dropzone.addEventListener('click', () => fileInput.click());
+
+  ['dragover', 'dragleave', 'drop'].forEach(evt => {
+    dropzone.addEventListener(evt, e => {
+      e.preventDefault();
+      if (evt === 'dragover') dropzone.classList.add('dragover');
+      if (evt !== 'dragover') dropzone.classList.remove('dragover');
+    });
+  });
+
+  dropzone.addEventListener('drop', e => {
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+
+  fileInput.addEventListener('change', e => {
+    if (e.target.files.length) handleFile(e.target.files[0]);
+  });
+
+  function handleFile(file) {
+    selectedFile = file;
+    const reader = new FileReader();
+    reader.onload = e => {
+      preview.src = e.target.result;
+      preview.style.display = 'block';
+      dzText.style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+    predictBtn.disabled = false;
+    result.classList.remove('show');
+  }
+
+  predictBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    predictBtn.disabled = true;
+    predictBtn.innerHTML = '<span class="spinner"></span>Classifying...';
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    const clientStart = performance.now();
+    try {
+      const res = await fetch('/predict', { method: 'POST', body: formData });
+      const data = await res.json();
+      const clientLatency = (performance.now() - clientStart) / 1000;
+
+      resultLabel.textContent = data.label;
+      resultLatency.textContent = `server: ${data.latency_seconds.toFixed(3)}s · round-trip: ${clientLatency.toFixed(3)}s`;
+      resultStatus.textContent = data.latency_seconds < 0.5 ? '✓ within SLO' : '✗ SLO violated';
+      resultStatus.style.color = data.latency_seconds < 0.5 ? 'var(--success)' : '#ff6b6b';
+      result.classList.add('show');
+    } catch (err) {
+      resultLabel.textContent = 'Error';
+      resultLatency.textContent = err.message;
+      result.classList.add('show');
+    } finally {
+      predictBtn.disabled = false;
+      predictBtn.textContent = 'Run Inference';
+    }
+  });
+</script>
+</body>
+</html>
