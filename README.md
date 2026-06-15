@@ -1,7 +1,7 @@
 # Elastic ML Inference Serving on Kubernetes
 
 **Course:** Cloud Computing (APL) — Technische Universität Ilmenau
-**Group/Author:** [your name(s)]
+**Group/Author:** DaudCloud-Sudo
 
 ## Project Overview
 
