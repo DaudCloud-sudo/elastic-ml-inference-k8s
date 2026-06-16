@@ -57,3 +57,17 @@
   Minikube's daemon in one command. Run this after every minikube delete.
 - Verified full request chain: host curl → NodePort → Dispatcher Pod →
   CoreDNS → ClusterIP → Inference Pod → ResNet18 → response
+
+## Phase 5 — Prometheus + Grafana (complete)
+- All 4 pods running: dispatcher, inference, prometheus, grafana
+- Prometheus scraping dispatcher at dispatcher-service:8001/metrics every 15s
+- Grafana dashboard created with 3 panels:
+    queue_depth, replica_count, p99_latency (with 0.5s SLO threshold line)
+- Grafana data source: http://prometheus-service:9090 (internal K8s DNS)
+- PromQL API verified: GET /api/v1/query returns JSON with
+  data.result[0].value[1] = metric value string
+- Inference GUI accessible via: kubectl port-forward deployment/inference-deployment 8080:8000
+- NodePorts summary:
+    Dispatcher:  192.168.49.2:30001 (Load Tester entry point)
+    Prometheus:  192.168.49.2:30090 (metrics DB + query API)
+    Grafana:     192.168.49.2:30300 (visualization, admin/cloudproject)

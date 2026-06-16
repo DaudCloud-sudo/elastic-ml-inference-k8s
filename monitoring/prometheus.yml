@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s      # How often Prometheus pulls metrics
+  evaluation_interval: 15s  # How often it evaluates alerting rules
+
+scrape_configs:
+
+  # Scrape the Dispatcher's /metrics endpoint
+  - job_name: 'dispatcher'
+    static_configs:
+      - targets: ['dispatcher-service:8001']
+    metrics_path: '/metrics'
+
+  # Scrape Prometheus itself (useful for debugging)
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
