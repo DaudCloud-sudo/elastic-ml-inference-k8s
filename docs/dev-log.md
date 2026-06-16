@@ -44,3 +44,16 @@
   (curl http://inference-service:8000/health from a debug pod) — NOT
   resolvable from host shell, which is expected (ClusterIP DNS is
   cluster-internal only)
+
+## Phase 4 — Dispatcher (debugging)
+- Hit etcd failure after repeated Minikube restarts:
+  apiserver returned 500, etcd health check failed.
+  Root cause: Minikube state corruption from repeated unclean stops.
+  Fix: `minikube delete` then `minikube start --cpus=4 --memory=8192`
+  (nuclear option but cleanest — code is in git, images rebuilt via script)
+- Key lesson: minikube delete destroys the cluster but NOT your code.
+  Always commit before experimenting with cluster-level changes.
+- Created scripts/rebuild-images.sh: rebuilds both Docker images inside
+  Minikube's daemon in one command. Run this after every minikube delete.
+- Verified full request chain: host curl → NodePort → Dispatcher Pod →
+  CoreDNS → ClusterIP → Inference Pod → ResNet18 → response

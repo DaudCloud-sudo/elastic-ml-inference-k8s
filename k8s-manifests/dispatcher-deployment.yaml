@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dispatcher-deployment
+  labels:
+    app: dispatcher
+spec:
+  replicas: 1           # Only ever 1 dispatcher — it's the central queue
+  selector:
+    matchLabels:
+      app: dispatcher
+  template:
+    metadata:
+      labels:
+        app: dispatcher
+    spec:
+      containers:
+        - name: dispatcher
+          image: dispatcher:v1
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8001
+          env:
+            - name: INFERENCE_SERVICE_URL
+              value: "http://inference-service:8000"
+            - name: INITIAL_REPLICAS
+              value: "1"
+          resources:
+            requests:
+              cpu: "0.5"
+            limits:
+              cpu: "1"
