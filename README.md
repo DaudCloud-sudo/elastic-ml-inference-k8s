@@ -36,7 +36,7 @@ K8s API server (scales Deployment)
 | Component | Tech | Status |
 |---|---|---|
 | ML Inference Service | Python, FastAPI, PyTorch (ResNet18) | 🚧 In progress |
-| Dispatcher | TBD | ⬜ Not started |
+| Dispatcher | TBD | ⬜ started |
 | Monitoring | Prometheus + exporters | ⬜ Not started |
 | Custom Autoscaler | C++ | ⬜ Not started |
 | Load Tester | reconfigurable-ml-pipeline/load_tester | ⬜ Not started |
