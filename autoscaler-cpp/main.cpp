@@ -254,8 +254,7 @@ bool scaleDeployment(int replicas, const std::string& token)
         " -n " + NAMESPACE +
         " 2>&1";
 
-    std::cout << "  [CMD] " << cmd << "
-";
+    std::cout << "  [CMD] " << cmd << "\n";
 
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) return false;

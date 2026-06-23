@@ -95,3 +95,13 @@
 - p99=4.7s observed during 10 concurrent requests to 1 replica —
   expected: queue backs up at dispatcher, sequential processing means
   req 10 waits behind 9 others. Proves scaling is necessary.
+
+## Phase 6 — C++ Autoscaler (final fixes)
+- Fixed compile error: literal newline inside string from Python patch script
+  (std::cout line was split across two lines by regex replacement)
+- kubectl scale verified working manually: deployment scales 1→2→1 in ~2s
+- Autoscaler reading real metrics: p99 ~0.19-0.29s under light load
+- Sustained load test (200+ requests at 2 req/s): p99 stable ~0.29s
+  with 1 replica — confirms single replica handles ~2 req/s within SLO
+- Heavy load needed to trigger scale-up (need concurrent requests)
+- Installed reconfigurable-ml-pipeline/load_tester for Phase 7
