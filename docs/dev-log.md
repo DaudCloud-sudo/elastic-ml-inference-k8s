@@ -71,3 +71,14 @@
     Dispatcher:  192.168.49.2:30001 (Load Tester entry point)
     Prometheus:  192.168.49.2:30090 (metrics DB + query API)
     Grafana:     192.168.49.2:30300 (visualization, admin/cloudproject)
+
+## Phase 6 — C++ Autoscaler (fixes)
+- Fixed NaN handling: Prometheus returns string "NaN" when
+  histogram_quantile has no data (no requests yet after restart).
+  std::stod("NaN") produces float NaN silently — now explicitly
+  checked and mapped to -1.0 (no-data sentinel value)
+- Startup script (scripts/start-cluster.sh) now reliably brings
+  up all 4 pods after any Minikube restart in one command
+- Autoscaler verified running: connects to Prometheus, parses
+  metrics, applies scaling logic every 15 seconds
+- Next: load testing with workload.txt to trigger real scaling
