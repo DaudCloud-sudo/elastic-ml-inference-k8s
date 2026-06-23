@@ -82,3 +82,16 @@
 - Autoscaler verified running: connects to Prometheus, parses
   metrics, applies scaling logic every 15 seconds
 - Next: load testing with workload.txt to trigger real scaling
+
+## Phase 6 — C++ Autoscaler (K8s scaling fix)
+- K8s PATCH via raw HTTP + Bearer token failed (permission/auth issues
+  with kubectl create token on Minikube)
+- Fix: replaced httpPatch approach with kubectl CLI via popen()
+  kubectl already has credentials from ~/.kube/config (set by minikube start)
+  cmd: kubectl scale deployment/inference-deployment --replicas=N
+- This is cleaner for host-side autoscaler; in-cluster deployment would
+  use ServiceAccount RBAC instead
+- Verified: kubectl scale works correctly from host
+- p99=4.7s observed during 10 concurrent requests to 1 replica —
+  expected: queue backs up at dispatcher, sequential processing means
+  req 10 waits behind 9 others. Proves scaling is necessary.

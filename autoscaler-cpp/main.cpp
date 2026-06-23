@@ -246,28 +246,29 @@ std::string getK8sToken()
 // ─────────────────────────────────────────────────────────────
 bool scaleDeployment(int replicas, const std::string& token)
 {
-    std::string url = K8S_API_URL +
-        "/apis/apps/v1/namespaces/" + NAMESPACE +
-        "/deployments/" + DEPLOYMENT_NAME;
+    // Use kubectl directly — it already has all credentials configured
+    // via ~/.kube/config from minikube start
+    std::string cmd =
+        "kubectl scale deployment/" + DEPLOYMENT_NAME +
+        " --replicas=" + std::to_string(replicas) +
+        " -n " + NAMESPACE +
+        " 2>&1";
 
-    // Minimal JSON patch — only the field we want to change
-    json patch = {
-        {"spec", {
-            {"replicas", replicas}
-        }}
-    };
+    std::cout << "  [CMD] " << cmd << "
+";
 
-    std::string response = httpPatch(url, patch.dump(), token);
-    if (response.empty()) return false;
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) return false;
 
-    try {
-        json j = json::parse(response);
-        // K8s returns the updated Deployment object on success
-        // Check the replicas field was actually set
-        return j["spec"]["replicas"] == replicas;
-    } catch (...) {
-        return false;
+    std::string result;
+    char buffer[256];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        result += buffer;
     }
+    int exitCode = pclose(pipe);
+
+    std::cout << "  [K8s] " << result;
+    return exitCode == 0;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -431,7 +432,7 @@ int main()
                           << " → " << desired << " replicas\n";
 
                 // ── Step 4: Scale K8s Deployment ─────────────
-                bool k8sOk = scaleDeployment(desired, k8sToken);
+                bool k8sOk = scaleDeployment(desired, "");
                 std::cout << "  K8s PATCH: "
                           << (k8sOk ? "OK" : "FAILED") << "\n";
 
