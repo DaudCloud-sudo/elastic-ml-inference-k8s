@@ -22,7 +22,7 @@ const std::string DEPLOYMENT_NAME   = "inference-deployment";
 
 // Scaling parameters — this is your "creative" contribution (slide 17)
 const int    MIN_REPLICAS           = 1;
-const int    MAX_REPLICAS           = 4;   // limited by 4 CPUs in Minikube
+const int    MAX_REPLICAS           = 2;   // limited by 4 CPUs in Minikube
 const double SLO_LATENCY_TARGET     = 0.5; // seconds — your hard SLO
 const double SCALE_UP_LATENCY       = 0.35;// scale up BEFORE hitting SLO
 const double SCALE_DOWN_LATENCY     = 0.15;// scale down when very comfortable

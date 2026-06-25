@@ -105,3 +105,15 @@
   with 1 replica — confirms single replica handles ~2 req/s within SLO
 - Heavy load needed to trigger scale-up (need concurrent requests)
 - Installed reconfigurable-ml-pipeline/load_tester for Phase 7
+
+## Phase 7 — Load Testing + Experiments
+- MAX_REPLICAS reduced to 2 (Minikube 4 CPU - system overhead = ~2 free)
+- Load tester: barazmoon package (import name), not load_tester
+- Three experiments run with workload.txt:
+    1. custom: C++ autoscaler (latency + queue based)
+    2. hpa70:  Kubernetes HPA 70% CPU target
+    3. hpa90:  Kubernetes HPA 90% CPU target
+- Results saved to results/*.csv
+- Comparison plot saved to results/comparison.png
+  Shows: p99 latency over time + replica count over time
+  Red dashed line = 0.5s SLO boundary
