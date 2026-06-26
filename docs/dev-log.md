@@ -117,3 +117,16 @@
 - Comparison plot saved to results/comparison.png
   Shows: p99 latency over time + replica count over time
   Red dashed line = 0.5s SLO boundary
+
+## Phase 7 — Load Testing (fixed)
+- Removed barazmoon MLServerLoad dependency (class doesn't exist
+  in installed version) — rewrote load tester using pure aiohttp
+  which is already installed. Cleaner and more controllable.
+- Three experiments with workload.txt (~600 steps, 7→44→7 rps pattern):
+    custom: C++ autoscaler (latency + queue based proactive scaling)
+    hpa70:  K8s HPA at 70% CPU utilization target
+    hpa90:  K8s HPA at 90% CPU utilization target
+- Results saved to results/*.csv
+- Comparison plot: results/comparison.png
+  Panel 1: p99 latency vs time (red dashed line = 0.5s SLO)
+  Panel 2: replica count vs time

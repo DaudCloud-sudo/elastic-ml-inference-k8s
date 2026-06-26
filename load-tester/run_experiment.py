@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
 Load test runner for Elastic ML Inference experiments.
-Uses barazmoon load tester with workload.txt pattern.
-Records p99 latency and replica count over time.
+Reads workload.txt (requests per second per step).
+Records p99 latency and replica count every 15 seconds.
+No external load tester dependency needed.
 """
 
 import asyncio
+import aiohttp
 import time
 import json
 import csv
@@ -13,34 +15,30 @@ import os
 import sys
 import argparse
 import threading
+import subprocess
 import requests
-from datetime import datetime
 
-# barazmoon is the actual module name for load_tester package
-from barazmoon import MLServerLoad
+# ── Configuration ────────────────────────────────────────────
+DISPATCHER_URL = "http://192.168.49.2:30001"
+PROMETHEUS_URL = "http://192.168.49.2:30090"
+RESULTS_DIR    = os.path.join(os.path.dirname(
+                     os.path.abspath(__file__)), "../results")
+IMAGE_FILE     = os.path.join(os.path.dirname(
+                     os.path.abspath(__file__)),
+                     "../inference-service/test.jpg")
+WORKLOAD_FILE  = os.path.join(os.path.dirname(
+                     os.path.abspath(__file__)), "workload.txt")
 
-# ── Configuration ──────────────────────────────────────────
-DISPATCHER_URL  = "http://192.168.49.2:30001"
-PROMETHEUS_URL  = "http://192.168.49.2:30090"
-WORKLOAD_FILE   = os.path.join(os.path.dirname(__file__), "workload.txt")
-IMAGE_FILE      = os.path.join(
-    os.path.dirname(__file__),
-    "../inference-service/test.jpg")
-RESULTS_DIR     = os.path.join(
-    os.path.dirname(__file__), "../results")
-
-def load_workload(path):
-    """Load space-separated integers from workload.txt"""
-    with open(path) as f:
+# ── Helpers ──────────────────────────────────────────────────
+def load_workload():
+    with open(WORKLOAD_FILE) as f:
         return [int(x) for x in f.read().split()]
 
 def query_prometheus(promql):
-    """Query Prometheus HTTP API, return float or None"""
     try:
         r = requests.get(
             f"{PROMETHEUS_URL}/api/v1/query",
-            params={"query": promql},
-            timeout=5)
+            params={"query": promql}, timeout=5)
         j = r.json()
         if j["status"] != "success":
             return None
@@ -48,176 +46,165 @@ def query_prometheus(promql):
         if not results:
             return None
         val = results[0]["value"][1]
-        if val in ("NaN", "nan", "+Inf"):
+        if val in ("NaN", "nan", "+Inf", "-Inf"):
             return None
         return float(val)
     except Exception:
         return None
 
-def get_replica_count():
-    """Get current inference deployment replica count"""
+def get_replicas():
     try:
-        import subprocess
-        result = subprocess.run(
+        r = subprocess.run(
             ["kubectl", "get", "deployment",
              "inference-deployment",
              "-o", "jsonpath={.status.readyReplicas}"],
             capture_output=True, text=True)
-        val = result.stdout.strip()
-        return int(val) if val else 0
+        v = r.stdout.strip()
+        return int(v) if v else 0
     except Exception:
         return 0
 
-def collect_metrics(experiment_name, stop_event, metrics_log):
-    """Background thread: collect metrics every 15 seconds"""
-    print(f"  [metrics] collector started for {experiment_name}")
+# ── Metrics collector (background thread) ────────────────────
+def collect_metrics(stop_event, log):
     while not stop_event.is_set():
-        ts = time.time()
-        p99 = query_prometheus(
-            "histogram_quantile(0.99, "
+        ts      = time.time()
+        elapsed = ts - log["start"]
+        p99     = query_prometheus(
+            "histogram_quantile(0.99,"
             "rate(dispatcher_request_latency_seconds_bucket[1m]))")
-        replicas = get_replica_count()
-        queue = query_prometheus("dispatcher_queue_depth")
+        replicas = get_replicas()
+        queue    = query_prometheus("dispatcher_queue_depth") or 0.0
 
-        entry = {
-            "timestamp": ts,
-            "elapsed":   ts - metrics_log["start_time"],
-            "p99_latency": p99,
+        row = {
+            "timestamp":   ts,
+            "elapsed":     round(elapsed, 1),
+            "p99_latency": round(p99, 4) if p99 else None,
             "replicas":    replicas,
-            "queue_depth": queue,
+            "queue_depth": round(queue, 1),
         }
-        metrics_log["data"].append(entry)
+        log["rows"].append(row)
 
-        p99_str = f"{p99:.3f}s" if p99 else "N/A"
-        print(f"  [metrics] t={entry['elapsed']:.0f}s "
-              f"p99={p99_str} "
-              f"replicas={replicas} "
-              f"queue={queue or 0:.0f}")
+        p99s = f"{p99:.3f}s" if p99 else "N/A  "
+        print(f"  [metrics] t={elapsed:6.0f}s  "
+              f"p99={p99s}  replicas={replicas}  queue={queue:.0f}")
 
         stop_event.wait(15)
 
-async def run_load_test(workload, experiment_name):
-    """Send requests following the workload pattern"""
-    print(f"\n{'='*50}")
-    print(f"  Experiment: {experiment_name}")
-    print(f"  Workload steps: {len(workload)}")
-    print(f"  Total duration: ~{len(workload)}s")
-    print(f"{'='*50}")
-
-    # Read image once
-    with open(IMAGE_FILE, "rb") as f:
-        image_bytes = f.read()
-
-    # Metrics collection in background thread
-    stop_event  = threading.Event()
-    metrics_log = {
-        "start_time": time.time(),
-        "data": []
-    }
-    metrics_thread = threading.Thread(
-        target=collect_metrics,
-        args=(experiment_name, stop_event, metrics_log),
-        daemon=True)
-    metrics_thread.start()
-
-    # Send requests following workload pattern
-    # Each number = requests to send in that 1-second window
-    request_count = 0
-    slo_violations = 0
-
-    for step_idx, rps in enumerate(workload):
-        step_start = time.time()
-
-        # Launch 'rps' concurrent requests for this second
-        tasks = []
-        for _ in range(rps):
-            tasks.append(send_request(image_bytes))
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for r in results:
-            if isinstance(r, dict):
-                request_count += 1
-                if r.get("latency", 0) > 0.5:
-                    slo_violations += 1
-
-        # Sleep remainder of the second
-        elapsed = time.time() - step_start
-        sleep_time = max(0, 1.0 - elapsed)
-        if sleep_time > 0:
-            await asyncio.sleep(sleep_time)
-
-        if step_idx % 30 == 0:
-            print(f"  [load] step {step_idx}/{len(workload)} "
-                  f"rps={rps} total_sent={request_count}")
-
-    # Stop metrics collection
-    stop_event.set()
-    metrics_thread.join(timeout=5)
-
-    # Summary
-    slo_rate = (1 - slo_violations/max(request_count,1)) * 100
-    print(f"\n  Total requests:    {request_count}")
-    print(f"  SLO violations:    {slo_violations}")
-    print(f"  SLO compliance:    {slo_rate:.1f}%")
-
-    return metrics_log
-
-async def send_request(image_bytes):
-    """Send one prediction request, return latency"""
-    import aiohttp
+# ── Single request ────────────────────────────────────────────
+async def send_one(session, image_bytes):
     start = time.time()
     try:
-        async with aiohttp.ClientSession() as session:
-            form = aiohttp.FormData()
-            form.add_field("file", image_bytes,
-                          filename="image.jpg",
-                          content_type="image/jpeg")
-            async with session.post(
+        form = aiohttp.FormData()
+        form.add_field("file", image_bytes,
+                       filename="img.jpg",
+                       content_type="image/jpeg")
+        async with session.post(
                 f"{DISPATCHER_URL}/predict",
                 data=form,
                 timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                data = await resp.json()
-                latency = time.time() - start
-                return {"latency": latency, "label": data.get("label")}
+            data = await resp.json()
+            lat  = time.time() - start
+            return {"ok": True, "latency": lat,
+                    "label": data.get("label", "?")}
     except Exception as e:
-        return {"error": str(e), "latency": time.time() - start}
+        return {"ok": False, "latency": time.time()-start,
+                "error": str(e)}
 
-def save_results(experiment_name, metrics_log):
-    """Save metrics to CSV for plotting"""
+# ── Main load loop ────────────────────────────────────────────
+async def run_load(workload, name):
+    print(f"\n{'='*54}")
+    print(f"  Experiment : {name}")
+    print(f"  Steps      : {len(workload)}  (~{len(workload)}s)")
+    print(f"  Max RPS    : {max(workload)}")
+    print(f"  Avg RPS    : {sum(workload)/len(workload):.1f}")
+    print(f"{'='*54}\n")
+
+    with open(IMAGE_FILE, "rb") as f:
+        img = f.read()
+
+    stop   = threading.Event()
+    log    = {"start": time.time(), "rows": []}
+    thread = threading.Thread(
+        target=collect_metrics, args=(stop, log), daemon=True)
+    thread.start()
+
+    total = 0
+    violations = 0
+
+    connector = aiohttp.TCPConnector(limit=200)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        for idx, rps in enumerate(workload):
+            step_start = time.time()
+
+            # Fire rps concurrent requests
+            tasks   = [send_one(session, img) for _ in range(rps)]
+            results = await asyncio.gather(*tasks)
+
+            for r in results:
+                total += 1
+                if r["latency"] > 0.5:
+                    violations += 1
+
+            # Log progress every 30 steps
+            if idx % 30 == 0:
+                pct = violations/max(total,1)*100
+                print(f"  [load] step={idx:4d}  rps={rps:3d}  "
+                      f"sent={total:5d}  "
+                      f"violations={violations} ({pct:.1f}%)")
+
+            # Sleep to fill the 1-second window
+            elapsed = time.time() - step_start
+            await asyncio.sleep(max(0, 1.0 - elapsed))
+
+    stop.set()
+    thread.join(timeout=5)
+
+    comp = (1 - violations/max(total,1)) * 100
+    print(f"\n  ── Summary ──────────────────────────────")
+    print(f"  Total requests  : {total}")
+    print(f"  SLO violations  : {violations}")
+    print(f"  SLO compliance  : {comp:.1f}%  (target >99%)")
+    print(f"  ─────────────────────────────────────────\n")
+
+    return log
+
+# ── Save CSV ──────────────────────────────────────────────────
+def save_csv(name, log):
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    safe_name = experiment_name.replace(" ", "_").lower()
-    csv_path = os.path.join(RESULTS_DIR, f"{safe_name}.csv")
+    path = os.path.join(RESULTS_DIR,
+                        f"{name.replace(' ','_').lower()}.csv")
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=[
+            "timestamp","elapsed",
+            "p99_latency","replicas","queue_depth"])
+        w.writeheader()
+        w.writerows(log["rows"])
+    print(f"  Saved: {path}")
+    return path
 
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            "timestamp", "elapsed",
-            "p99_latency", "replicas", "queue_depth"])
-        writer.writeheader()
-        writer.writerows(metrics_log["data"])
-
-    print(f"  Results saved: {csv_path}")
-    return csv_path
-
+# ── Entry point ───────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(
-        description="Run load test experiment")
-    parser.add_argument("experiment",
-        help="Name: 'custom', 'hpa70', 'hpa90'")
-    args = parser.parse_args()
+    p = argparse.ArgumentParser()
+    p.add_argument("experiment",
+                   choices=["custom","hpa70","hpa90"],
+                   help="Which experiment to run")
+    args = p.parse_args()
 
-    workload = load_workload(WORKLOAD_FILE)
-    print(f"Loaded workload: {len(workload)} steps, "
-          f"max={max(workload)} rps, "
-          f"avg={sum(workload)/len(workload):.1f} rps")
+    # Verify image exists
+    if not os.path.exists(IMAGE_FILE):
+        print(f"ERROR: image not found at {IMAGE_FILE}")
+        print("Run: curl -L -o inference-service/test.jpg "
+              "https://raw.githubusercontent.com/EliSchwartz/"
+              "imagenet-sample-images/master/"
+              "n01530575_brambling.JPEG")
+        sys.exit(1)
 
-    # Run experiment
-    metrics_log = asyncio.run(
-        run_load_test(workload, args.experiment))
+    workload = load_workload()
+    print(f"Workload loaded: {len(workload)} steps")
 
-    # Save results
-    save_results(args.experiment, metrics_log)
-    print(f"\nExperiment '{args.experiment}' complete.")
+    log = asyncio.run(run_load(workload, args.experiment))
+    save_csv(args.experiment, log)
+    print(f"Experiment '{args.experiment}' complete.\n")
 
 if __name__ == "__main__":
     main()
