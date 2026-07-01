@@ -130,3 +130,13 @@
 - Comparison plot: results/comparison.png
   Panel 1: p99 latency vs time (red dashed line = 0.5s SLO)
   Panel 2: replica count vs time
+
+## Final documentation push
+- Complete README.md rewrite: one single file, no chunks
+- Added submission checklist to README
+- OPERATIONS.md created in docs/ as standalone reference
+- scripts/quick_test.sh added for smoke testing after startup
+- scripts/start-cluster.sh updated: auto-downloads test.jpg,
+  removes HPA leftovers, resets to 1 replica
+- hpa-70.yaml and hpa-90.yaml moved to k8s-manifests/experiments/
+  so startup script never applies them automatically
